@@ -36,10 +36,40 @@ in
       '';
       description = "The transcribe-meeting package to install.";
     };
+
+    envFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "/run/agenix/deepgram-api-key";
+      description = ''
+        Path to a file containing environment variable assignments
+        (e.g. `DEEPGRAM_API_KEY=...`) to source before running the CLI.
+        Intended for secret managers like agenix/sops that decrypt to a
+        runtime path. Both `KEY=VAL` and `export KEY=VAL` formats work.
+
+        When set, the installed `transcribe-meeting` is a wrapper that
+        sources this file on every invocation.
+      '';
+    };
   };
 
   config = lib.mkIf cfg.enable {
-    home.packages = [ cfg.package ];
+    home.packages = [
+      (
+        if cfg.envFile == null then
+          cfg.package
+        else
+          pkgs.symlinkJoin {
+            name = "${cfg.package.name}-env-wrapped";
+            paths = [ cfg.package ];
+            nativeBuildInputs = [ pkgs.makeWrapper ];
+            postBuild = ''
+              wrapProgram $out/bin/transcribe-meeting \
+                --run 'set -a; . "${cfg.envFile}"; set +a'
+            '';
+          }
+      )
+    ];
 
     xdg.configFile."pipewire/pipewire.conf.d/20-transcribe-meeting-echo-cancel.conf".text = ''
       context.modules = [
