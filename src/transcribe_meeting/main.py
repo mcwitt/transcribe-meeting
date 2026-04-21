@@ -33,12 +33,14 @@ ECHO_CANCEL_SOURCE = "echo-cancel-source"
 def default_sink() -> str:
     try:
         out = subprocess.check_output(
-            ["pw-metadata", "0", "default.audio.sink"], text=True
+            ["pw-metadata", "0", "default.audio.sink"], text=True, timeout=5
         )
     except FileNotFoundError:
         raise SystemExit("pw-metadata not found; is PipeWire installed?") from None
     except subprocess.CalledProcessError as e:
         raise SystemExit(f"pw-metadata failed: {e}") from None
+    except subprocess.TimeoutExpired:
+        raise SystemExit("pw-metadata timed out") from None
     m = re.search(r"value:'([^']*)'", out)
     if not m:
         raise SystemExit(f"could not parse default sink:\n{out}")
@@ -133,30 +135,36 @@ def emit_transcript(data: dict[str, Any]) -> None:
         print(f"[{label}] {' '.join(toks)}", flush=True)
 
 
-def pw_nodes() -> list[dict[str, Any]]:
+def pw_nodes() -> list[tuple[dict[str, Any], dict[str, Any]]]:
     try:
-        out = subprocess.check_output(["pw-dump"], text=True)
-    except (FileNotFoundError, subprocess.CalledProcessError):
+        out = subprocess.check_output(["pw-dump"], text=True, timeout=5)
+    except FileNotFoundError:
+        return []
+    except subprocess.CalledProcessError as e:
+        print(
+            f"[warn] pw-dump failed ({e}); skipping node enumeration",
+            file=sys.stderr,
+        )
+        return []
+    except subprocess.TimeoutExpired:
+        print("[warn] pw-dump timed out; skipping node enumeration", file=sys.stderr)
         return []
     return [
-        obj for obj in json.loads(out) if obj.get("type") == "PipeWire:Interface:Node"
+        (obj, (obj.get("info") or {}).get("props") or {})
+        for obj in json.loads(out)
+        if obj.get("type") == "PipeWire:Interface:Node"
     ]
 
 
-def has_source(name: str) -> bool:
-    for obj in pw_nodes():
-        props = (obj.get("info") or {}).get("props") or {}
-        if (
-            props.get("media.class") == "Audio/Source"
-            and props.get("node.name") == name
-        ):
-            return True
-    return False
+def source_exists(name: str) -> bool:
+    return any(
+        props.get("media.class") == "Audio/Source" and props.get("node.name") == name
+        for _, props in pw_nodes()
+    )
 
 
 def list_sources() -> None:
-    for obj in pw_nodes():
-        props = (obj.get("info") or {}).get("props") or {}
+    for _, props in pw_nodes():
         mc = props.get("media.class")
         if mc not in ("Audio/Source", "Audio/Sink"):
             continue
@@ -319,7 +327,9 @@ def main() -> None:
         raise SystemExit("DEEPGRAM_API_KEY is not set")
 
     sink = args.system or default_sink()
-    mic = args.mic or (ECHO_CANCEL_SOURCE if has_source(ECHO_CANCEL_SOURCE) else None)
+    mic = args.mic or (
+        ECHO_CANCEL_SOURCE if source_exists(ECHO_CANCEL_SOURCE) else None
+    )
 
     try:
         asyncio.run(run(mic, sink, api_key, args.keep_camera))

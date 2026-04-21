@@ -11,19 +11,15 @@ in
 {
   options.programs.transcribe-meeting = {
     enable = lib.mkEnableOption ''
-      the transcribe-meeting CLI and a PipeWire echo-cancel virtual mic/sink pair.
+      the transcribe-meeting CLI and an echo-cancelled virtual mic source.
 
       Drops a config at ~/.config/pipewire/pipewire.conf.d/ that loads
-      libpipewire-module-echo-cancel (WebRTC AEC3). This creates two virtual
-      nodes:
-
-        echo-cancel-source  — mic with speaker output subtracted
-        echo-cancel-sink    — anything routed here is the cancellation reference
-
-      For cancellation to engage, playback must go through echo-cancel-sink
-      (set it as the default sink, or route the meeting app there manually).
-      Then pass `--mic echo-cancel-source` to transcribe-meeting, or make it
-      the default source via wpctl/wireplumber.
+      libpipewire-module-echo-cancel (WebRTC AEC3) in monitor mode: the
+      module taps the current default sink's output as the echo reference
+      automatically, so apps can keep playing to the real hardware sink —
+      no routing changes required. The module exposes a single virtual
+      source, `echo-cancel-source`, which the CLI auto-selects when
+      present.
 
       Changes take effect after `systemctl --user restart pipewire wireplumber`.
     '';
