@@ -75,7 +75,7 @@ After the first activation, restart the session's PipeWire:
 systemctl --user restart pipewire wireplumber
 ```
 
-Then set `echo-cancel-sink` as your default sink (`wpctl set-default <id>` or via your audio UI) and pass `--mic echo-cancel-source` to `transcribe-meeting`.
+That's it. The drop-in uses `monitor.mode = true`, so the module taps your current default sink's output as the reference automatically — no app re-routing. The CLI auto-picks `echo-cancel-source` as the mic when it exists, so `transcribe-meeting` just works.
 
 ## How it works
 

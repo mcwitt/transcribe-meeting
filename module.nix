@@ -72,18 +72,20 @@ in
     ];
 
     xdg.configFile."pipewire/pipewire.conf.d/20-transcribe-meeting-echo-cancel.conf".text = ''
+      # monitor.mode=true makes the module use the current default sink's
+      # monitor as the echo reference, so apps can keep playing to the real
+      # hardware sink — no re-routing required. The module exposes a single
+      # virtual source, "echo-cancel-source", which is the real mic with the
+      # speaker-to-mic echo path subtracted by WebRTC AEC3.
       context.modules = [
           {   name = libpipewire-module-echo-cancel
               args = {
                   library.name  = aec/libspa-aec-webrtc
+                  monitor.mode  = true
                   node.latency  = 1024/48000
                   source.props = {
                       node.name        = "echo-cancel-source"
                       node.description = "Echo-cancelled microphone"
-                  }
-                  sink.props = {
-                      node.name        = "echo-cancel-sink"
-                      node.description = "Echo-cancel reference sink"
                   }
                   aec.args = {
                       webrtc.gain_control       = true

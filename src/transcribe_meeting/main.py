@@ -25,6 +25,10 @@ QUEUE_MAX = 50  # ~5 s buffer; drop oldest on full so producers stay live
 
 DEEPGRAM_URL = "wss://api.deepgram.com/v1/listen"
 
+# Created by the home-manager module's PipeWire drop-in. When present, we
+# default to this mic so the tool picks up the AEC'd signal automatically.
+ECHO_CANCEL_SOURCE = "echo-cancel-source"
+
 
 def default_sink() -> str:
     try:
@@ -129,11 +133,29 @@ def emit_transcript(data: dict[str, Any]) -> None:
         print(f"[{label}] {' '.join(toks)}", flush=True)
 
 
+def pw_nodes() -> list[dict[str, Any]]:
+    try:
+        out = subprocess.check_output(["pw-dump"], text=True)
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return []
+    return [
+        obj for obj in json.loads(out) if obj.get("type") == "PipeWire:Interface:Node"
+    ]
+
+
+def has_source(name: str) -> bool:
+    for obj in pw_nodes():
+        props = (obj.get("info") or {}).get("props") or {}
+        if (
+            props.get("media.class") == "Audio/Source"
+            and props.get("node.name") == name
+        ):
+            return True
+    return False
+
+
 def list_sources() -> None:
-    out = subprocess.check_output(["pw-dump"], text=True)
-    for obj in json.loads(out):
-        if obj.get("type") != "PipeWire:Interface:Node":
-            continue
+    for obj in pw_nodes():
         props = (obj.get("info") or {}).get("props") or {}
         mc = props.get("media.class")
         if mc not in ("Audio/Source", "Audio/Sink"):
@@ -260,7 +282,10 @@ def main() -> None:
     )
     parser.add_argument(
         "--mic",
-        help="PipeWire node name or serial for the mic (default: default source)",
+        help=(
+            "PipeWire node name or serial for the mic "
+            "(default: echo-cancel-source if present, else the default source)"
+        ),
     )
     parser.add_argument(
         "--system",
@@ -294,9 +319,10 @@ def main() -> None:
         raise SystemExit("DEEPGRAM_API_KEY is not set")
 
     sink = args.system or default_sink()
+    mic = args.mic or (ECHO_CANCEL_SOURCE if has_source(ECHO_CANCEL_SOURCE) else None)
 
     try:
-        asyncio.run(run(args.mic, sink, api_key, args.keep_camera))
+        asyncio.run(run(mic, sink, api_key, args.keep_camera))
     except KeyboardInterrupt:
         pass
 
